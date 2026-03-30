@@ -35,18 +35,17 @@ BANNER = f"""
 
 Hosts:
   A = KDC / Domain Controller
-  B = bob
-  C = charlie
-  D = mysql server
-  E = http server
+  B = Bob's Laptop
+  C = Charlie's Workstation
+  D = MySQL Server
+  E = HTTP Server
 
 Goal:
-  Submit the 3 client-side packets in the correct order:
-    1. AUTH_REQ
-    2. SERVICE_REQ
-    3. APP_REQ
-
-The KDC automatically generates AUTH_REP and SERVICE_REP.
+  Connect to a service as a client.
+  Submit the 3 packets in the correct order:
+    1. AS-REQ
+    2. TGS-REQ
+    3. AP-REQ
 
 Commands:
   help   - show packet formats
@@ -76,7 +75,6 @@ def reset_session() -> None:
     global session
     session = new_session()
     print(f"{YELLOW}[RESET]{RESET} Session reset.")
-    print(f"{CYAN}Expected next step:{RESET} AUTH_REQ")
 
 
 def fail(msg: str) -> None:
@@ -101,44 +99,45 @@ def print_help() -> None:
         f"""
 Packet formats:
 
-1) AUTH_REQ
+1) AS-REQ
 {{
-  "src": "B",
-  "dst": "A",
-  "type": "AUTH_REQ",
-  "user": "bob"
+  "src": "<host>",
+  "dst": "<host>",
+  "type": "AS-REQ",
+  "user": "<user>"
 }}
 
-2) SERVICE_REQ
+2) TGS-REQ
 {{
-  "src": "B",
-  "dst": "A",
-  "type": "SERVICE_REQ",
-  "service": "mysql",
-  "tgt": "TGT_BOB_ABC123"
+  "src": "<host>",
+  "dst": "<host>",
+  "type": "TGS-REQ",
+  "service": "<service>",
+  "tgt": "<tgt>"
 }}
 
-3) APP_REQ
+3) AP-REQ
 {{
-  "src": "B",
-  "dst": "D",
-  "type": "APP_REQ",
-  "service": "mysql",
-  "service_ticket": "ST_BOB_MYSQL_DEF456"
+  "src": "<host>",
+  "dst": "<host>",
+  "type": "AP-REQ",
+  "service": "<service>",
+  "service_ticket": "<service_ticket>"
 }}
 
 Notes:
-- Clients:
-    B -> bob
-    C -> charlie
+- <host>:
+    A, B, C, D, or E
 
-- Services:
-    D -> mysql
-    E -> http
+- <user>:
+   bob or charlie
+   
+- <service>:
+   mysql or http
 
-- The KDC will generate the TGT and service ticket for you.
-- Reuse the exact values the KDC gives you.
-- If you make a mistake, the session resets.
+- Fill in the <parameters> yourself.
+- The KDC will generate the <tgt> and <service_ticket> for you.
+- Type the packet as a JSON string on a single line.
 """
     )
 
@@ -162,21 +161,21 @@ def validate_auth_req(packet: dict) -> None:
     dst = packet.get("dst")
     user = packet.get("user")
 
-    if packet.get("type") != "AUTH_REQ":
-        fail("Expected AUTH_REQ as the first packet.")
+    if packet.get("type") != "AS-REQ":
+        fail("Expected AS-REQ as the first packet.")
         return
 
     if src not in CLIENTS:
-        fail("AUTH_REQ must come from a valid client (B or C).")
+        fail("AS-REQ must come from a valid client (B or C).")
         return
 
     if dst != KDC:
-        fail("AUTH_REQ must be sent to A.")
+        fail("AS-REQ must be sent to A.")
         return
 
     expected_user = CLIENTS[src]
     if user != expected_user:
-        fail(f"AUTH_REQ user mismatch. Expected '{expected_user}' for client '{src}'.")
+        fail(f"AS-REQ user mismatch. Expected '{expected_user}' for client '{src}'.")
         return
 
     session["client"] = src
@@ -184,17 +183,16 @@ def validate_auth_req(packet: dict) -> None:
     session["tgt"] = make_tgt(expected_user)
     session["expected_step"] = 3
 
-    print(f"{GREEN}[OK]{RESET} {src} -> {dst} AUTH_REQ accepted")
-    print(f"{BLUE}Auto-generated response:{RESET}")
+    print(f"{GREEN}[OK]{RESET} {src} -> {dst} AS-REQ accepted")
+    print(f"AS-REP Received:{RESET}")
     pretty(
         {
             "src": "A",
             "dst": src,
-            "type": "AUTH_REP",
+            "type": "AS-REP",
             "tgt": session["tgt"],
         }
     )
-    print(f"{CYAN}Expected next step:{RESET} SERVICE_REQ")
 
 
 def validate_service_req(packet: dict) -> None:
@@ -203,25 +201,25 @@ def validate_service_req(packet: dict) -> None:
     service = packet.get("service")
     tgt = packet.get("tgt")
 
-    if packet.get("type") != "SERVICE_REQ":
-        fail("Expected SERVICE_REQ as the next packet.")
+    if packet.get("type") != "TGS-REQ":
+        fail("Expected TGS-REQ as the next packet.")
         return
 
     if src != session["client"]:
-        fail("SERVICE_REQ must come from the same client that requested the TGT.")
+        fail("TGS-REQ must come from the same client that requested the TGT.")
         return
 
     if dst != KDC:
-        fail("SERVICE_REQ must be sent to A.")
+        fail("TGS-REQ must be sent to A.")
         return
 
     if service not in SERVICES:
         valid_services = ", ".join(sorted(SERVICES.keys()))
-        fail(f"SERVICE_REQ must request a valid service ({valid_services}).")
+        fail(f"TGS-REQ must request a valid service ({valid_services}).")
         return
 
     if tgt != session["tgt"]:
-        fail("SERVICE_REQ used an invalid or modified TGT.")
+        fail("TGS-REQ used an invalid or modified TGT.")
         return
 
     session["service"] = service
@@ -229,18 +227,17 @@ def validate_service_req(packet: dict) -> None:
     session["service_ticket"] = make_service_ticket(session["user"], service)
     session["expected_step"] = 5
 
-    print(f"{GREEN}[OK]{RESET} {src} -> {dst} SERVICE_REQ accepted")
-    print(f"{BLUE}Auto-generated response:{RESET}")
+    print(f"{GREEN}[OK]{RESET} {src} -> {dst} TGS-REQ accepted")
+    print(f"TGS-REP Received:{RESET}")
     pretty(
         {
             "src": "A",
             "dst": src,
-            "type": "SERVICE_REP",
+            "type": "TGS-REP",
             "service": service,
             "service_ticket": session["service_ticket"],
         }
     )
-    print(f"{CYAN}Expected next step:{RESET} APP_REQ")
 
 
 def validate_app_req(packet: dict) -> None:
@@ -249,40 +246,40 @@ def validate_app_req(packet: dict) -> None:
     service = packet.get("service")
     service_ticket = packet.get("service_ticket")
 
-    if packet.get("type") != "APP_REQ":
-        fail("Expected APP_REQ as the final packet.")
+    if packet.get("type") != "AP-REQ":
+        fail("Expected AP-REQ as the final packet.")
         return
 
     if src != session["client"]:
-        fail("APP_REQ must come from the same authenticated client.")
+        fail("AP-REQ must come from the same authenticated client.")
         return
 
     if dst != session["service_host"]:
-        fail("APP_REQ must be sent to the correct host for the requested service.")
+        fail("AP-REQ must be sent to the correct host for the requested service.")
         return
 
     if service != session["service"]:
-        fail("APP_REQ service does not match the service requested earlier.")
+        fail("AP-REQ service does not match the service requested earlier.")
         return
 
     expected_host = SERVICES.get(service)
     if expected_host != dst:
-        fail(f"APP_REQ host/service mismatch. Service '{service}' belongs on host '{expected_host}'.")
+        fail(f"AP-REQ host/service mismatch. Service '{service}' belongs on host '{expected_host}'.")
         return
 
     if service_ticket != session["service_ticket"]:
-        fail("APP_REQ used an invalid or modified service ticket.")
+        fail("AP-REQ used an invalid or modified service ticket.")
         return
 
     session["complete"] = True
 
-    print(f"{GREEN}[OK]{RESET} {src} -> {dst} APP_REQ accepted")
-    print(f"{GREEN}{BOLD}ACCESS GRANTED{RESET}")
+    print(f"{GREEN}[OK]{RESET} {src} -> {dst} AP-REQ accepted")
+    print(f"AP-REP Received:{RESET}")
     pretty(
         {
             "src": dst,
             "dst": src,
-            "type": "ACCESS_GRANTED",
+            "type": "AP-REP",
             "flag": FLAG,
         }
     )
@@ -311,8 +308,6 @@ def handle_packet(packet: dict) -> None:
 
 def repl() -> None:
     print(BANNER.strip())
-    print_help()
-    print()
     reset_session()
 
     while True:
