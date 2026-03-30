@@ -28,7 +28,8 @@ SERVICE_HOSTS = {
 
 SERVICES = {v: k for k, v in SERVICE_HOSTS.items()}
 
-FLAG = "FLAG{valid_ticket_chain}"
+FLAG1 = "FLAG{valid_ticket_chain}"
+FLAG2 = "FLAG{pass_the_ticket_success}"
 
 BANNER = f"""
 {BOLD}Mini Kerberos CTF{RESET}
@@ -40,11 +41,18 @@ Hosts:
   D = MySQL Server
   E = HTTP Server
 
-Goal:
-  Connect to a service as a client.
+Goals:
+  FLAG 1: Connect to a service as a client.
   Submit the 3 packets in the correct order:
     1. AS-REQ
     2. TGS-REQ
+    3. AP-REQ
+
+  FLAG 2: Break my system by conducting a Pass-The-Ticket attack.
+  Submit the 2 packets as before:
+    1. AS-REQ
+    2. TGS-REQ
+  Then send the service ticket from a {BOLD}DIFFERENT{RESET} host:
     3. AP-REQ
 
 Commands:
@@ -131,7 +139,7 @@ Notes:
 
 - <user>:
    bob or charlie
-   
+
 - <service>:
    mysql or http
 
@@ -250,8 +258,8 @@ def validate_app_req(packet: dict) -> None:
         fail("Expected AP-REQ as the final packet.")
         return
 
-    if src != session["client"]:
-        fail("AP-REQ must come from the same authenticated client.")
+    if src not in CLIENTS:
+        fail("AP-REQ must come from a valid client (B or C).")
         return
 
     if dst != session["service_host"]:
@@ -272,15 +280,23 @@ def validate_app_req(packet: dict) -> None:
         return
 
     session["complete"] = True
+    is_pass_the_ticket = src != session["client"]
+    awarded_flag = FLAG2 if is_pass_the_ticket else FLAG1
 
     print(f"{GREEN}[OK]{RESET} {src} -> {dst} AP-REQ accepted")
+
+    if is_pass_the_ticket:
+        print(
+            f"{YELLOW}[PTT]{RESET} Pass-the-Ticket detected: "
+            f"ticket originally issued to {session['client']} but replayed from {src}"
+        )
     print(f"AP-REP Received:{RESET}")
     pretty(
         {
             "src": dst,
             "dst": src,
             "type": "AP-REP",
-            "flag": FLAG,
+            "flag": awarded_flag,
         }
     )
     print(f"{GREEN}{BOLD}[SUCCESS]{RESET} Challenge solved.")
